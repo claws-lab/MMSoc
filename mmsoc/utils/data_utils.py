@@ -129,7 +129,7 @@ def load_data(dataset_name: str, split: str, data_dir: str):
 
     # Sentiment Analysis: Memotion
     if dataset_name in ["memotion"]:
-        df = pd.read_excel(osp.join(data_dir, "Social", "memotion_dataset_7k", "labels.xlsx"))
+        df = pd.read_excel(osp.join(data_dir, "Social", "memotion_dataset_7k", "labels.xlsx"), index_col=0)
 
         train_size = int(len(df) * 0.9)
         if split == "dev":
