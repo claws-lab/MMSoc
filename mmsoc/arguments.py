@@ -75,6 +75,8 @@ def parse_args(dataset_name: str = None, task: str = None, topic: str = None, te
 
     args = parser.parse_args()
 
+    args.data_dir = os.path.expanduser(args.data_dir)
+
     if text_input_length is not None:
         args.text_input_length = text_input_length
 
@@ -176,5 +178,6 @@ def parse_args(dataset_name: str = None, task: str = None, topic: str = None, te
 
     if args.model_name in ["GPT4V"]:
         args.answers_file = args.answers_file.replace('.jsonl', '.xlsx')
+
 
     return args

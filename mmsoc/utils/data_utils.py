@@ -1,19 +1,18 @@
+import ast
 import json
 import os
-import sys
 import os.path as osp
 import platform
-import random
 import re
+import shutil
+import sys
 import traceback
 from os import path as osp
 from typing import List
 
-import numpy as np
-import ast
-
 import pandas as pd
 import torch
+from datasets import Features, Value, DatasetDict
 from openpyxl import load_workbook
 
 sys.path.append(os.path.abspath('.'))
@@ -44,8 +43,7 @@ def save(answer_li: list, answers_file: str, existing_results=None):
         results_df.to_excel(writer, index=False)
 
 
-def truncate_input(text: str, max_num_words: int=256):
-
+def truncate_input(text: str, max_num_words: int = 256):
     try:
         text = re.sub(r'\s+', ' ', re.sub(r"\n+", " ", text))
         words = text.split(" ")
@@ -63,6 +61,7 @@ def truncate_input(text: str, max_num_words: int=256):
 
 def keep_ascii_chars(s):
     return re.sub(r'[^\x00-\x7F]+', '', s)
+
 
 def get_device_for_platform():
     if platform.system() == "Windows":
@@ -95,6 +94,7 @@ def get_gpt4v_generated_data_file_path(dataset_name: str, split: str):
 
     return data_file
 
+
 def get_modified_time_of_file(path):
     import datetime, pathlib
     model_metadata = pathlib.Path(path).stat()
@@ -123,24 +123,92 @@ def load_jsonl(path):
 
     return df
 
-def load_data(dataset_name: str, split: str, data_dir: str):
 
+def load_data(dataset_name: str, split: str, data_dir: str):
     print(f"Loading data from {dataset_name} (split: {split})")
 
     # Sentiment Analysis: Memotion
     if dataset_name in ["memotion"]:
-        df = pd.read_excel(osp.join(data_dir, "Social", "memotion_dataset_7k", "labels.xlsx"), index_col=0)
+        all_data = pd.read_excel(osp.join(data_dir, "Social", "memotion_dataset_7k", "labels.xlsx"), index_col=0)
 
-        train_size = int(len(df) * 0.9)
-        if split == "dev":
-            df = df[train_size:]
-        elif split == "train":
-            df = df[:train_size]
+        train_size = int(len(all_data) * 0.8)
+        val_size = int(len(all_data) * 0.1)
 
-        else:
-            raise NotImplementedError
+        new_df = []
 
-        df = df.reset_index(drop=True)
+        for split in ["train", "val", "test"]:
+
+            if split == "train":
+                df = all_data[:train_size]
+
+            elif split == "val":
+                df = all_data[train_size:(train_size + val_size)]
+
+            elif split == "test":
+                df = all_data[(train_size + val_size):]
+
+            os.makedirs(osp.join(data_dir, "Social", "MMSoc_memotion", split), exist_ok=True)
+
+            for idx, row in df.iterrows():
+
+                source_file = osp.join(data_dir, "Social", "memotion_dataset_7k", "images", row['image'])
+                target_file = osp.join(data_dir, "Social", "MMSoc_memotion", split, row['image'])
+                if os.path.exists(source_file):
+                    shutil.copy2(source_file, target_file)
+
+                    new_row = row.copy()
+                    new_row['image'] = osp.join(split, row['image'])
+                    new_row['split'] = split
+                    new_df.append(new_row)
+
+                # row['image'] = osp.join(row['image'])
+
+            # if row['label'] == "neutral":
+            #     df.loc[idx, 'label'] = 0
+            # elif row['label'] == "positive":
+            #     df.loc[idx, 'label'] = 1
+            # elif row['label'] == "negative":
+            #     df.loc[idx, 'label'] = 2
+
+        # Create a new DataFrame from the collected rows
+        all_data = pd.DataFrame(new_df).reset_index(drop=True)
+        all_data.rename({"image": "file_name"}, axis=1, inplace=True)
+
+        # Save the new DataFrame to JSON lines format
+        all_data.to_json(osp.join(data_dir, "Social", "MMSoc_memotion", "metadata.jsonl"), orient="records", lines=True)
+
+        from datasets import load_dataset
+
+        features = Features({
+            'file_name': Value('string'),
+            'text_ocr': Value('string'),
+            'text_corrected': Value('string'),
+            'humor': Value('string'),
+            'sarcasm': Value('string'),
+            'offensive': Value('string'),
+            'motivational': Value('string'),
+            'sentiment': Value('string'),
+            'split': Value('string'),
+        })
+
+        metadata_file = os.path.join(data_dir, "Social", "MMSoc_memotion", "metadata.jsonl")
+
+        dataset = load_dataset(
+            'json',
+            data_files=metadata_file,
+            features=features,
+        )
+
+        # Split the dataset into train, validation, and test sets
+        train_dataset = dataset.filter(lambda x: x['split'] == 'train')['train']
+        val_dataset = dataset.filter(lambda x: x['split'] == 'val')['val']
+        test_dataset = dataset.filter(lambda x: x['split'] == 'test')['test']
+
+        dataset_dict = DatasetDict({
+            'train': train_dataset,
+            'val': val_dataset,
+            'test': test_dataset
+        })
 
         image_directory_name = osp.join(data_dir, "images")
 
@@ -152,11 +220,7 @@ def load_data(dataset_name: str, split: str, data_dir: str):
 
         df['label'] = 1 - df['label'].astype(int)
 
-
-
-
         label_sum = df['label'].sum()
-
 
         image_directory_name = osp.join(data_dir, "Images", f"{dataset_name}_{split}")
 
@@ -167,7 +231,7 @@ def load_data(dataset_name: str, split: str, data_dir: str):
     # Hatespeech
 
     elif dataset_name in ["hatefulmemes"]:
-        df = load_jsonl(osp.join(data_dir, "Social", "HatefulMemes",  f"{split}.jsonl"))
+        df = load_jsonl(osp.join(data_dir, "Social", "HatefulMemes", f"{split}.jsonl"))
         # print("TODO: Loading only the first 200 entries")
         # df = df[:200]
         df = df.rename({"img": "image"}, axis=1)
@@ -188,7 +252,7 @@ def load_data(dataset_name: str, split: str, data_dir: str):
             df = df[train_size:]
 
         else:
-           print("Unknown split")
+            print("Unknown split")
 
 
     elif dataset_name == "toxic_comments":
@@ -200,7 +264,8 @@ def load_data(dataset_name: str, split: str, data_dir: str):
 
     df = df.reset_index(drop=True)
 
-    return df, image_directory_name
+    return df
+
 
 def check_sheet_exists(file_path, sheet_name):
     workbook = load_workbook(file_path)

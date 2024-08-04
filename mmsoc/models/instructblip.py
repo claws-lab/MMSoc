@@ -4,6 +4,7 @@ import sys
 import traceback
 import pandas as pd
 from PIL import Image
+from datasets import load_dataset
 from tqdm import trange
 from transformers import AutoProcessor, Blip2ForConditionalGeneration
 
@@ -60,10 +61,11 @@ def process_single_example(df, idx, args, processor, model, device, template, an
 def main():
     project_setup()
     args = parse_args()
-    device = args.device
-    processor, model = load_model(args, device)
-    df, _ = load_data(args.dataset_name, args.split, args.data_dir)
-    answers = process_images_and_questions(df, args, processor, model, device)
+    data = load_dataset("Ahren09/Memotion", split='val')
+    processor, model = load_model(args, args.device)
+    # df, _ = load_data(args.dataset_name, args.split, args.data_dir)
+
+    answers = process_images_and_questions(data, args, processor, model, args.device)
     save_results(answers, args.answers_file)
 
 if __name__ == "__main__":
